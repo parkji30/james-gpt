@@ -27,17 +27,17 @@ class CausalSelfAttention(nn.Module):
         v = self.v_embed(x)
         
         # fill fake scores first
-        scores = ((q @ k.transpose(-2, -1)) / self.dim_k)
+        qk_values = ((q @ k.transpose(-2, -1)) / self.dim_k)
         
         # Create lower triangular attention
         mask = torch.tril(
-            torch.ones(scores.size(-2), scores.size(-1), device=scores.device, dtype=torch.bool)
+            torch.ones(qk_values.size(-2), qk_values.size(-1), device=qk_values.device, dtype=torch.bool)
         )
 
         # Fill the forbidden spots with -inf.
-        scores = scores.masked_fill(~mask, float("-inf"))
+        qk_values = qk_values.masked_fill(~mask, float("-inf"))
 
-        attention_scores = torch.vmap(softmax)(scores) @ v
+        attention_scores = torch.vmap(softmax)(qk_values) @ v
 
         return attention_scores
 
@@ -76,7 +76,7 @@ class TransformerBlock(nn.Module):
 
         self.mlp = MLP(embed_dim, mlp_dim)
 
-        self.causal_attention = CausalSelfAttention()
+        self.causal_attention = CausalSelfAttention(embed_dim, embed_dim)
 
         self.ln1 = nn.LayerNorm(embed_dim)
         self.ln2 = nn.LayerNorm(embed_dim)
@@ -94,14 +94,48 @@ class TransformerBlock(nn.Module):
 
 class GPT(nn.Module):
 
-    def __init__(self):
+    def __init__(
+        self,
+        vocab_size,
+        embed_dim,
+        mlp_dim,
+        context_length,
+        decoder_blocks
+    ):
+        super().__init__()
+        self.token_embedding = nn.Embedding(vocab_size, embed_dim)
+        self.positional_embedding = nn.Embedding(context_length, embed_dim)
 
-        self.positional_embedding = nn.Embedding
+        self.decoder_blocks = nn.ModuleList(
+            [TransformerBlock(embed_dim=embed_dim, mlp_dim=mlp_dim) for _ in range(decoder_blocks)]
+        )
+
+        self.logits = nn.Linear(embed_dim, vocab_size)
+        self.ln_f = nn.LayerNorm(embed_dim)
 
     def forward(self, x):
+        # we need to get the positions
+        B, T = x.shape # T for tokens
+        position_indices = torch.arange(T, device=x.device)
 
-        ...
+        token_embedding = self.token_embedding(x) 
+        position_embedding = self.positional_embedding(position_indices)
 
+        # Merge the token embeddings.
+        x = token_embedding + position_embedding
+
+        # pass through GPT layer
+        for block in self.decoder_blocks:
+            x = block(x)
+        
+        # Layernorm before logits
+        x = self.ln_f(x)
+
+        # Create logits
+        x = self.logits(x)
+
+
+        return x
 
 if __name__ == '__main__':
     model = GPT()
