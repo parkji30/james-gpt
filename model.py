@@ -138,4 +138,5 @@ class GPT(nn.Module):
         return x
 
 if __name__ == '__main__':
-    model = GPT()
+    from config import GPT_CONFIG
+    model = GPT(**GPT_CONFIG)
