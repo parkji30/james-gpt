@@ -3,9 +3,9 @@ from torch import nn
 import torch.nn.functional as F
 
 def softmax(x):
-    x = x - x.max() #this makes largest value -> 0 and exp(0) = 1.
+    x = x - x.max(dim=-1, keepdim=True).values #this makes largest value -> 0 and exp(0) = 1.
     exps = torch.exp(x)
-    return exps / torch.sum(exps)
+    return exps / torch.sum(exps, dim=-1, keepdim=True)
 
 
 class CausalSelfAttention(nn.Module):
