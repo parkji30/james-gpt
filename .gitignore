@@ -11,3 +11,8 @@ wheels/
 
 # data folder
 /data
+
+# pytorch 
+*.pt
+
+.cache/

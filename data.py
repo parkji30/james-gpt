@@ -1,27 +1,31 @@
-from pathlib import Path
-from collections import Counter
+import datasets
+from transformers import GPT2Tokenizer
+import torch
 
-def convert_to_char_token(folder = 'train-medium'):
-    data_dir = Path(__file__).resolve().parent / "data" / folder
-    files = sorted(data_dir.iterdir())
+dataset = datasets.load_dataset(
+    "mlfoundations/dclm-baseline-1.0", 
+    split='train', 
+    streaming=True
+)
 
-    with files[0].open("r", encoding="utf-8") as f:
-        text = f.read()
+TOKENIZER = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
 
-    chars = sorted(set(text))
-    vocab_size = len(chars)
+def stream_fixed_context_length(context_length:int =256):
+    token_buffer = []
 
-    stoi = {s: i for i, s in enumerate(chars)}
-    itos = {i: s for s, i in stoi.items()}
+    for text in dataset:        
+        token_ids = TOKENIZER.encode(text, add_special_tokens=False)
 
-    tokenized_text = [stoi[ch] for ch in text]
+        # If there's nothing to tokenize, we just continue
+        if not token_ids:
+            continue 
 
-    with open("tokenized_text.txt", 'w+') as t_f:
-        t_f.write(" ".join(map(str, tokenized_text)))
-        t_f.seek(0)
-        print(t_f.read(100))
+        token_buffer.extend(token_ids)
+        token_buffer.append(TOKENIZER.eos_token_id)   
 
+        while len(token_buffer) >= context_length + 1:
+            block = token_buffer[: context_length + 1]
 
-if __name__ == '__main__':
-    convert_to_char_token()
- 
+            del token_buffer[: context_length + 1]
+
+        x = torch.tensor(block[:-1], dtype=torch.long)
