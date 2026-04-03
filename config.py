@@ -3,6 +3,6 @@ GPT_CONFIG = {
     "num_heads": 8,
     "embed_dim": 512,
     "mlp_dim" : 2048,
-    "context_length": 256,
-    "decoder_blocks" : 25
+    "context_length": 512,
+    "decoder_blocks" : 20
 }

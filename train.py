@@ -9,7 +9,10 @@ from model import GPT
 from plotting import LossPlotter
 import json
 
+from data import TOKENIZER, batch_streamer
+
 # Depracated Old Version
+# will keep this here because I'm proud ;')
 # def cross_entropy(logits, targets):
 #     logits_scaled = (
 #         logits - torch.max(logits, dim=-1, keepdim=True).values
@@ -27,50 +30,18 @@ def get_device():
     return torch.device("cpu")
 
 
-def train_test_split(train_portion=0.7):
-    with open("tokenized_text.txt", "r", encoding="utf-8") as f:
-        data = torch.tensor(
-            [int(token) for token in f.read().split()], dtype=torch.long
-        )
-
-    data_size = len(data)
-
-    train_set = data[: int(data_size * train_portion)]
-    test_set = data[int(data_size * train_portion) :]
-
-    return train_set, test_set
-
-
-def get_batch(text_slice, batch_size, context_window):
-    max_start = len(text_slice) - context_window
-    start_indices = torch.randint(
-        0, max_start, (batch_size,), device=text_slice.device
-    )  # return 32, 1
-
-    x_idx = start_indices[:, None] + torch.arange(
-        context_window, device=text_slice.device
-    )
-    y_idx = x_idx + 1  # shift by 1 to right.
-
-    x = text_slice[x_idx]
-    y = text_slice[y_idx]
-
-    return start_indices, x, y
-
-
 DEVICE = get_device()
-# This needs to be replaced.
-# train_set, test_set = train_test_split()
-# train_set = train_set.to(DEVICE)
-# test_set = test_set.to(DEVICE)
 
-EPOCHS = 1
+EPOCHS = 10
 STEPS = 10000
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 CONTEXT_WINDOW = GPT_CONFIG["context_length"]
-LEARNING_RATE = 1e-5
-MUON_LR = 1e-3
+LEARNING_RATE = 5e-6
+MUON_LR = 5e-4
 PLOT_EVERY = 25
+EVAL_EVERY = 250
+EVAL_PROMPT = "Hello, who are you?"
+EVAL_MAX_NEW_TOKENS = 400
 DTYPE = torch.bfloat16
 ARTIFACTS_DIR = Path("artifacts")
 
@@ -107,7 +78,29 @@ muon_optim = optim.Muon(
     adjust_lr_fn="match_rms_adamw",
 )
 loss_plotter = LossPlotter(update_every=PLOT_EVERY)
+
+pretrain_data_generator = batch_streamer(batch_size=BATCH_SIZE, context_length=CONTEXT_WINDOW)
+
 ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@torch.no_grad()
+def sample_completion(prompt: str, max_new_tokens: int = EVAL_MAX_NEW_TOKENS) -> str:
+    model.eval()
+
+    token_ids = TOKENIZER.encode(prompt, add_special_tokens=False)
+    tokens = torch.tensor(token_ids, device=DEVICE, dtype=torch.long).unsqueeze(0)
+
+    for _ in range(max_new_tokens):
+        context = tokens[:, -CONTEXT_WINDOW:]
+        logits = model(context)
+        next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+        tokens = torch.cat((tokens, next_token), dim=1)
+
+        if next_token.item() == TOKENIZER.eos_token_id:
+            break
+
+    return TOKENIZER.decode(tokens[0].tolist(), skip_special_tokens=False)
 
 try:
     for ep in range(EPOCHS):
@@ -115,21 +108,20 @@ try:
 
         for step in progress_bar:
             # This needs to be replaced
-            # _, train_batch, train_targets = get_batch(
-            #     train_set,
-            #     BATCH_SIZE,
-            #     CONTEXT_WINDOW,
-            # )
+            ipt_tensors, target_tensors = next(pretrain_data_generator)
+            ipt_tensors = ipt_tensors.to(DEVICE)
+            target_tensors = target_tensors.to(DEVICE)
+
 
             # nuke old gradients
             adamw_optim.zero_grad(set_to_none=True)
             muon_optim.zero_grad(set_to_none=True)
 
             # forward pass
-            logits = model(train_batch)  # return raw logits before softmax output
+            logits = model(ipt_tensors)  # return raw logits before softmax output
 
             # calculate loss
-            loss = F.cross_entropy(input=logits.reshape(-1, logits.shape[-1]), target=train_targets.reshape(-1))
+            loss = F.cross_entropy(input=logits.reshape(-1, logits.shape[-1]), target=target_tensors.reshape(-1))
             loss_value = loss.item()
             progress_bar.set_postfix(loss=f"{loss_value:.4f}")
 
@@ -142,43 +134,25 @@ try:
 
             global_step = ep * STEPS + step + 1
 
-            
             loss_plotter.update(global_step, loss_value)
 
-            if step % 100 == 0:
-                print(f"Epoch: {ep}, Step: {step}")
-                print('-' * 60)
-                model.eval()
-                with torch.inference_mode():
-                    _, test_batch, _ = get_batch(
-                        test_set,
-                        1,
-                        CONTEXT_WINDOW,
-                    )
-                    for _ in range(100):
-                        logits = model(test_batch)  # (1, T, vocab_size)
-                        logits = logits[0, -1]      # (vocab_size,)
-                        logits -= torch.max(logits)
-                        probs = torch.softmax(logits, dim=-1)
-                        sampled_token = torch.multinomial(probs, num_samples=1).item()
-                        sampled_char = itos[str(sampled_token)]
-                        print(sampled_char, end="", flush=True)
+            if global_step % EVAL_EVERY == 0:
+                sample_text = sample_completion(EVAL_PROMPT)
+                tqdm.write(f"[step {global_step}] eval prompt: {EVAL_PROMPT!r}")
+                tqdm.write(sample_text)
+                model.train()
 
-                        next_token_tensor = torch.tensor([[sampled_token]], device=test_batch.device)
-                        test_batch = torch.cat([test_batch, next_token_tensor], dim=1)
-                        test_batch = test_batch[:, -CONTEXT_WINDOW:]
-                    print()
-                    
+            if step % 1000 == 0:
                 torch.save(
                     {
                         "model_state_dict": model.state_dict(), 
                         "adamw_state_dict": adamw_optim.state_dict(),
                         "muon_state_dict": muon_optim.state_dict(),
-                        "config": model_config
                     },
                     ARTIFACTS_DIR / "JamesGPT.pt"
                 )
+
                 # Switch back to Train mode.
-                model.train()
+                # model.train()
 finally:
     loss_plotter.close()

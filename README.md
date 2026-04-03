@@ -20,7 +20,16 @@ I kind of want to investigate the new Muon optimizer (2x speedup claim for LLMs)
 - Model is clearly learning as shown by [`test.png`](artifacts/test.png)
 - Okay, let's optimize this training process a bit.
 - The one major thing I need to add is `scaled_dot_product_attention`
-- Other than that, I will use huggingface datasets (DCLM / DataComp-LM) with the GPT2 BPE tokenizer as my pretraining.
+- Other than that, I will use huggingface datasets (DCLM / DataComp-LM) with the GPT2 BPE tokenizer as my pretraining. This dataset is known to have 4 Trillion tokens.
+- We are training on 327,680,000 tokens. 
+- we are using the  `mlfoundations/dclm-baseline-1.0` as our pretraining dataset! Quite exciting!. I will look for a SFT set after this.
+- Time to add `scaled-dot-product-attention` to this to make it faster.
+- Okay before i move on, i need to look into SDPA, how to write my own inference function (taking logits, decoding, etc.) and BPE encoding.
+- Really exciting though!![`real_pretraining_loss.png`](training_loss.png)
+
+
+
+# Next Steps
 - Once that is done, I will SFT it after on another Education Math Dataset.
-- Finally, the last part of this repo, I will investigate the chinchilla scaling laws, code up my own BPE and scaled_dot product attention.
+- Finally, the last part of this repo, I will investigate the chinchilla scaling laws, code up my own BPE and scaled_dot product attention (probably these will go into scribbles).
 - In another repo, I will take a already trained baseline model (Qwen 27B) and RL Tune it to my environment!

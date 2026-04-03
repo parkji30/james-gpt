@@ -38,24 +38,33 @@ class MultiHeadCausalSelfAttention(nn.Module):
         k = self.k_embed(x).reshape(B, L, self.num_heads, self.d_k).permute(0, 2, 1, 3)
         v = self.v_embed(x).reshape(B, L, self.num_heads, self.d_k).permute(0, 2, 1, 3)
 
+        # memories
         # fill fake scores first
-        qk_values = (q @ k.transpose(-2, -1)) / self.d_k**0.5
-
+        # qk_values = (q @ k.transpose(-2, -1)) / self.d_k**0.5
+        #
         # Create lower triangular attention
-        mask = torch.tril(
-            torch.ones(
-                qk_values.size(-2),
-                qk_values.size(-1),
-                device=qk_values.device,
-                dtype=torch.bool,
-            )
-        )
-
+        # mask = torch.tril(
+        #     torch.ones(
+        #         qk_values.size(-2),
+        #         qk_values.size(-1),
+        #         device=qk_values.device,
+        #         dtype=torch.bool,
+        #     )
+        # )
+        #
         # Fill the forbidden spots with -inf.
-        qk_values = qk_values.masked_fill(~mask, float("-inf"))
-
+        # qk_values = qk_values.masked_fill(~mask, float("-inf"))
+        #
         # shape is (B, H, L, d_k)
-        attention_scores = torch.vmap(softmax)(qk_values) @ v
+        # attention_scores = torch.vmap(softmax)(qk_values) @ v
+        attention_scores = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=None,
+            dropout_p=0.0,
+            is_causal=True,
+        )
 
         # Reshape this back into (B, L, C)
         attention_scores = attention_scores.permute(0, 2, 1, 3).reshape(
