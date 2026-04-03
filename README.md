@@ -17,7 +17,6 @@ I kind of want to investigate the new Muon optimizer (2x speedup claim for LLMs)
 
 
 # April 2, 2026
-- Model is clearly learning as shown by [`test.png`](artifacts/test.png)
 - Okay, let's optimize this training process a bit.
 - The one major thing I need to add is `scaled_dot_product_attention`
 - Other than that, I will use huggingface datasets (DCLM / DataComp-LM) with the GPT2 BPE tokenizer as my pretraining. This dataset is known to have 4 Trillion tokens.
@@ -25,6 +24,8 @@ I kind of want to investigate the new Muon optimizer (2x speedup claim for LLMs)
 - we are using the  `mlfoundations/dclm-baseline-1.0` as our pretraining dataset! Quite exciting!. I will look for a SFT set after this.
 - Time to add `scaled-dot-product-attention` to this to make it faster.
 - Okay before i move on, i need to look into SDPA, how to write my own inference function (taking logits, decoding, etc.) and BPE encoding.
+- make sure i learn about temperature, top_p, top_k, repitition penalty etc.
+- Learn about weight decay, gradient clipping, learning rate scheduling. 
 - Really exciting though!![`real_pretraining_loss.png`](training_loss.png)
 
 

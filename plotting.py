@@ -44,9 +44,9 @@ class LossPlotter:
         self.smooth_line, = self.axis.plot(
             [],
             [],
-            color="tab:orange",
-            alpha=0.35,
-            linewidth=1.4,
+            color="tab:red",
+            alpha=0.8,
+            linewidth=1.8,
             linestyle="--",
             label="ema",
             zorder=1,

@@ -1,15 +1,16 @@
 from multiprocessing import context
 import datasets
-from transformers import GPT2Tokenizer
+from transformers import AutoTokenizer
 import torch
 
 dataset = datasets.load_dataset(
     "mlfoundations/dclm-baseline-1.0", 
     split='train', 
     streaming=True
-)
+).shuffle(buffer_size=10000)
 
-TOKENIZER = GPT2Tokenizer.from_pretrained("openai-community/gpt2")
+TOKENIZER = AutoTokenizer.from_pretrained("openai-community/gpt2", use_fast=True)
+
 
 def stream_fixed_context_length(context_length: int = 256):
     token_buffer = []
@@ -27,7 +28,9 @@ def stream_fixed_context_length(context_length: int = 256):
         while len(token_buffer) >= context_length + 1:
             block = token_buffer[: context_length + 1]
 
-            del token_buffer[: context_length + 1]
+            # Advance by context_length so the final token in this block becomes
+            # the first prediction target for the next block.
+            del token_buffer[: context_length]
 
             x = torch.tensor(block[:-1], dtype=torch.long)
             y = torch.tensor(block[1:], dtype=torch.long)

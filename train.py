@@ -42,6 +42,11 @@ PLOT_EVERY = 25
 EVAL_EVERY = 250
 EVAL_PROMPT = "Hello, who are you?"
 EVAL_MAX_NEW_TOKENS = 400
+# Decoding settings are worth reviewing as the model improves.
+EVAL_TEMPERATURE = 0.8
+EVAL_TOP_K = 50
+EVAL_TOP_P = 0.9
+EVAL_REPETITION_PENALTY = 1.1
 DTYPE = torch.bfloat16
 ARTIFACTS_DIR = Path("artifacts")
 
@@ -94,7 +99,42 @@ def sample_completion(prompt: str, max_new_tokens: int = EVAL_MAX_NEW_TOKENS) ->
     for _ in range(max_new_tokens):
         context = tokens[:, -CONTEXT_WINDOW:]
         logits = model(context)
-        next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+        next_token_logits = logits[:, -1, :] / EVAL_TEMPERATURE
+
+        if EVAL_REPETITION_PENALTY != 1.0:
+            for batch_idx in range(tokens.size(0)):
+                seen_token_ids = torch.unique(tokens[batch_idx])
+                next_token_logits[batch_idx, seen_token_ids] /= EVAL_REPETITION_PENALTY
+
+        if EVAL_TOP_K is not None:
+            top_k_values, _ = torch.topk(
+                next_token_logits, k=min(EVAL_TOP_K, next_token_logits.size(-1))
+            )
+            top_k_threshold = top_k_values[:, [-1]]
+            next_token_logits = next_token_logits.masked_fill(
+                next_token_logits < top_k_threshold, float("-inf")
+            )
+
+        if EVAL_TOP_P is not None:
+            sorted_logits, sorted_indices = torch.sort(
+                next_token_logits, dim=-1, descending=True
+            )
+            sorted_probs = torch.softmax(sorted_logits, dim=-1)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+
+            sorted_indices_to_remove = cumulative_probs > EVAL_TOP_P
+            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+            sorted_indices_to_remove[..., 0] = False
+
+            indices_to_remove = torch.zeros_like(
+                next_token_logits, dtype=torch.bool
+            ).scatter(1, sorted_indices, sorted_indices_to_remove)
+            next_token_logits = next_token_logits.masked_fill(
+                indices_to_remove, float("-inf")
+            )
+
+        probs = torch.softmax(next_token_logits, dim=-1)
+        next_token = torch.multinomial(probs, num_samples=1)
         tokens = torch.cat((tokens, next_token), dim=1)
 
         if next_token.item() == TOKENIZER.eos_token_id:
